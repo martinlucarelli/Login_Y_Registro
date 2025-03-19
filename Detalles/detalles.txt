@@ -1,0 +1,68 @@
+﻿
+
+Uso de Layouts
+
+	A medida que iba avanzando en el proyecto me surgio la duda de por que en cada vista solo se coloca en el archivo cshtml lo que
+	queremos que se muestre y no se colocan etiquetas de html como <head> o <body> etc. 
+	Esto se debe a que esas etiquetas y toda la estructura html se aloja en los archivos que se encuntran dentro de la carpeta shared.
+	Cada un de estos archivos contie el formato "deafult" que tendra cada vista y en donde se coloque el @renderBody() es lo que va
+	a cambiar cada vista. Es por eso que cuando creamos una vista, no es necesario poner toda la estructura del archivo html, ya que
+	esta se encuntra en el layout, solamente debemos indicar que layout queremos utilizar al inicio colocandolo entre @.
+
+	Ejemplo para que se entienda mejor:
+
+		Por defecto cuando creamos estos proyectos ya vienen con la barra de navegacion y cada vez que añadimos una nueva vista 
+		esta barra se mantiene. Eso es porque por defecto todos los archivos que añadimos utilizan el archivo _Layout.cshtml.
+		Pero haciendo este proyecto surgio que a la hora de crear la vista que contiene el formulario, seguia apareciendo la barra,
+		por lo tanto tuve que crear un nuevo layout para esta vista para que esa barra no aparezca.
+
+		.primero cree una vista que la llamo _LoginLayout
+
+		@{
+			Layout = null;  // No se utiliza el layout principal
+		}
+
+		<!DOCTYPE html>
+		<html lang="es">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>@ViewData["Title"]</title>
+			<link href="~/css/login.css" rel="stylesheet" />
+		</head>
+		<body>
+    
+				@RenderBody() ---> Aca se insertará el contenido específico de la vista 
+    
+		</body>
+		</html>
+
+		.Dentro de esta vista se crea toda la estructura html que tendra esa vista y coloco @RenderBody() donde quiero que este
+		lo que tengan las vistas que utilicen este layout.
+		El renderbody se puede colocar dentro de un div, u alguna otra etiqueta, pero no se debe colocar en cualquier lado ya que 
+		puede traer problemas (por ejemplo, no se puede colocar dentro de <h1>);
+
+		.Por ulitmo en la vista que contendra el login le indicamos que utilice el layout que creamos
+
+		@{
+		   ViewData["Title"] = "Iniciar sesión";
+			Layout = "_LoginLayout"; -------------> Aca indicamos el layout.
+		}
+
+			<div class="form-container">
+				<h2>Iniciar sesión</h2>
+				<form>
+					<div class="input-group">
+						<label for="email">Correo electrónico</label>
+						<input type="email" id="email" name="email" placeholder="Introduce tu correo" required>
+					</div>
+					<div class="input-group">
+						<label for="password">Contraseña</label>
+						<input type="password" id="password" name="password" placeholder="Introduce tu contraseña" required>
+					</div>
+					<button type="submit" class="btn-submit">Iniciar sesión</button>
+				</form>
+			</div>
+		
+		.Por lo tanto todo este contenido,a la hora de ejecutar aparecera dentro del body del layout, justamente donde indicamos el 
+		renderbody
