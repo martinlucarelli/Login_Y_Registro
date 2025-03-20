@@ -66,3 +66,28 @@ Uso de Layouts
 		
 		.Por lo tanto todo este contenido,a la hora de ejecutar aparecera dentro del body del layout, justamente donde indicamos el 
 		renderbody
+
+
+ Context con la base de datos ya creada
+ 
+	En este proyecto ya tenia la base de datos creada, por lo tanto no utilice el context para crearla, entonces en el context solo
+	defini el bdset que contenia la tabla Usuario de la base de datos, pero no contenia ningun modelCreate.
+	Sin embargo surgieron unos problemas mientras hacia el proyecto, principalmente los problemas eran que no se encontraban base de datos
+	con ese nombre o que no se encontraban tablas o columnas.
+	Esto sucedia por que entityFramework no reconocia algunos datos
+
+	1. No me reconocia la tabla ya que no utlice el modeloncreatig y en ningun lugar indique el nombre de la tabla a la que quiero acceder
+	con el dbset. Para esto tuve que utilizar dataanotattions en el model.
+
+	[Table("Usuario")] -------> Asi indico el nombre de la tabla, debe estar exactamente igual que en la base de datos.
+    public class Usuario
+    {
+        [Key] -----------------------------> Tambien tuve problemas con la PK, ya que en ningun lugar la indique, asi se indica con DatAno.
+        public int idUsuario { get; set; }
+        public string? Correo {  get; set; }
+        public string ?Contraseña {  get; set; }
+    }
+
+	2. Tampoco me reconocia las columnas, esto se debia a que en la base de datos estaban como "Correo" y "Contraseña y yo las tenia
+	en el model como "correo" y "contraseña". Por lo tanto en el model, los atributos deben tener la misma nomenclatura que las tablas
+	de la base de datos, respetando mayusculas.

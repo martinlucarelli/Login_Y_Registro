@@ -1,9 +1,14 @@
-﻿namespace Login_Y_Registro.Models
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Login_Y_Registro.Models
 {
+    [Table("Usuario")]
     public class Usuario
     {
-        int idUsuario { get; set; }
-        char correo {  get; set; }
-        char contraseña {  get; set; }
+        [Key]
+        public int idUsuario { get; set; }
+        public string? Correo {  get; set; }
+        public string ?Contraseña {  get; set; }
     }
 }

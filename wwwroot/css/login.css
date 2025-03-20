@@ -69,3 +69,7 @@ h2 {
     .btn-submit:active {
         background-color: #003f7f;
     }
+.text-danger {
+    color: red !important;
+    font-size: 14px;
+}
