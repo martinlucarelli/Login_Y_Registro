@@ -10,5 +10,7 @@ namespace Login_Y_Registro.Models
         public int idUsuario { get; set; }
         public string? Correo {  get; set; }
         public string ?Contraseña {  get; set; }
+        public bool  Confirmado {  get; set; }
+        public string? TokenConfirmacion { get; set;}
     }
 }

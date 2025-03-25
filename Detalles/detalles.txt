@@ -91,3 +91,318 @@ Uso de Layouts
 	2. Tampoco me reconocia las columnas, esto se debia a que en la base de datos estaban como "Correo" y "Contraseña y yo las tenia
 	en el model como "correo" y "contraseña". Por lo tanto en el model, los atributos deben tener la misma nomenclatura que las tablas
 	de la base de datos, respetando mayusculas.
+
+
+
+Funcionamiento del login confirmando usuario por correo y restablecer contraseña.
+
+	Para comenzar a realizar un login que trabaje con el correo electronico para confirmar el registro o para recuperar contraseña
+	primero debemos indicar en el AppSettings el uso del correo.
+
+	"EmailSettings": {
+
+    "SmtpServer": "smtp.gmail.com",
+    "SmtpPort": "587",
+    "SenderEmail": "developmjl@gmail.com",
+    "SenderPassword": "pjfy iwec eyjv digo"
+	}
+
+	Es muy importante tener en cuenta que utilizando cuentas de gmail o de outlook no nos va a permitir usar la contraseña que 
+	tenemos para iniciar sesion en esa cuenta, lo que se debe hacer es realizar la autenticacion en dos pasos y luego generar
+	una contraseña para aplicacion (Al momento de hacer este proyecto no tenia la opcion de crear contraseña de aplicacion desde
+	google, tuve que buscar un link para poder crearla). La contraseña de aplicacion es una contraseña de 16 caracteres, separados
+	en grupos de 4. Esta contraseña permite acceder a nuestra cuenta sin necesidad de utilizar la contraseña real de la cuenta.
+	Si no generamos y utilizamos la contraseña de aplicacion no nos va a acceder al correo.
+
+	MODELO DEL USUARIO:
+	
+	[Table("Usuario")]
+    public class Usuario
+    {
+        [Key]
+        public int idUsuario { get; set; } 
+        public string? Correo {  get; set; }
+        public string ?Contraseña {  get; set; }
+        public bool  Confirmado {  get; set; } ---> Valor booleano que indica si el usuario confirmo el correo. 
+        public string? TokenConfirmacion { get; set;} ---> Almacena un token único para verificar el correo o restablecer la contraseña.
+    }
+
+	USO DEL TOKEN:
+
+	Confirmación de cuenta: Cuando un usuario se registra, se le envía un token en un enlace por email. Cuando el usuario hace clic
+	en ese enlace, el sistema busca el token en la base de datos, lo valida y marca el usuario como "confirmado".
+
+	Restablecimiento de contraseña: Si un usuario olvida su contraseña, el sistema genera un nuevo token, lo envía por email y
+	cuando el usuario hace clic en el enlace, puede ingresar una nueva contraseña.
+
+	Uso del service:
+	
+	El EmailService es un servicio que se encarga de enviar correos electrónicos. Su propósito es centralizar la lógica de
+	envío de emails, evitando repetir código en los controladores.
+
+	    public async Task<bool> EnviarCorreo(string destinatario, string asunto, string mensaje)
+        {
+            try
+            {
+                var email = new MimeMessage();
+                email.From.Add(new MailboxAddress("Mi Aplicación", _config["EmailSettings:SenderEmail"]));
+                email.To.Add(MailboxAddress.Parse(destinatario));
+                email.Subject = asunto;
+                email.Body = new TextPart("html") { Text = mensaje };
+
+                using var smtp = new MailKit.Net.Smtp.SmtpClient();
+                await smtp.ConnectAsync(_config["EmailSettings:SmtpServer"], int.Parse(_config["EmailSettings:SmtpPort"]), false);
+                await smtp.AuthenticateAsync(_config["EmailSettings:SenderEmail"], _config["EmailSettings:SenderPassword"]);
+                await smtp.SendAsync(email);
+                await smtp.DisconnectAsync(true);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error enviando correo: {ex.Message}");
+                return false;
+            }
+        }
+
+		1. Se crea un objeto MimeMessage que representa un email.
+		2. Se define el remitente con el email configurado en appsettings.json.
+		3. Se establece el destinatario con el email del usuario que recibirá el mensaje.
+		4. Se asigna el asunto del email.
+		5. Se establece el cuerpo del mensaje en formato HTML.
+		6. Se conecta al servidor de correo utilizando los datos de configuración (SmtpServer, SmtpPort)
+		7. Se autentica con el usuario y la contraseña del email de envío.
+		8. Se envía el email.
+		9. Se cierra la conexión con el servidor de correo.
+
+
+	REGISTRAR USUARIO:
+
+	Ahora la funcion registar usuario no solo registra el usuario sino que tambien envia un mail para que luego sea confirmado
+	por el usuario.
+
+	 public async Task<IActionResult> registrarUsuario(UsuarioViewModel u)
+        {
+            var usuarioRepetido = context.Usuarios.FirstOrDefault(user=> user.Correo == u.correo);
+
+            if(usuarioRepetido != null) 
+            {
+                ModelState.AddModelError("correo", "Ya existe una cuenta registrada con esa direccion de correo");
+                return View(u);
+            }
+            else if (u.contraseña == u.confirmarContraseña)
+            {
+
+                string contraseñaBasheada = ConvertirSha256(u.contraseña);
+
+                string token = Guid.NewGuid().ToString(); //Genera token unico
+
+                Usuario usuarioFinal = new Usuario
+                {
+                    Correo = u.correo,
+                    Contraseña = contraseñaBasheada,
+                    Confirmado=false,
+                    TokenConfirmacion= token
+                    
+                };
+
+                context.Usuarios.Add(usuarioFinal);
+                context.SaveChanges();
+
+                //Enviar correo de confirmacion
+
+                string linkConfirmacion = Url.Action("ConfirmarCorreo", "LoginRegistro", new { token }, Request.Scheme);
+                string mensaje = $"<h3>Bienvenido a nuestra aplicación</h3><p>Haz click <a href='{linkConfirmacion}'>aquí</a> para confirmar tu correo.</p>";
+
+                await _emailService.EnviarCorreo(u.correo, "Confirma tu cuenta", mensaje);
+
+                return RedirectToAction("iniciarSesion", "LoginRegistro");
+            }
+            else
+            {
+                ModelState.AddModelError("contraseña", "Las contraseñas no coinciden");
+                ModelState.AddModelError("repetirContraseña", "Las contraseñas no coinciden");
+                return View(u);
+            }
+           
+        }
+
+		
+		Se puede ver que cuando se registra un usuario se guarda en la base de datos antes de que se confirme, es decir queda 
+		guardado pero no confirmado, una vez que se hace click en el enlace del mail se confirma el usuario.
+
+		Esta funcion envia mail de confirmacion de la siguiente manera:
+			1. Se genera un token único con Guid.NewGuid().ToString().
+			2. Se guarda el token en la base de datos junto con el usuario.
+			3. Se genera un enlace dinámico con Url.Action(), donde el usuario podrá confirmar su cuenta haciendo clic.
+			4. Se construye un mensaje HTML con ese enlace.
+			5. Se llama al método EnviarCorreo() del EmailService para enviar el mensaje con el enlace de confirmación.
+
+	CONFIRMAR CORREO:
+		
+		La funcion que confirma el correo se utliza dentro de registrar usuario, en url.Action(), alli se genera un enlace y cuando
+		se clickea en el no dirige a la funcion ConfirmarCorreo y envia por parametro un Token.
+
+	    public IActionResult ConfirmarCorreo(string token)
+        {
+            var usuario = context.Usuarios.FirstOrDefault(u => u.TokenConfirmacion == token);
+            if (usuario == null)
+            {
+                return NotFound();
+            }
+            usuario.Confirmado = true;
+            usuario.TokenConfirmacion = null;
+            context.SaveChanges();
+
+            return View("ConfirmacionExitosa");
+        }
+
+		1. Búsqueda del usuario por token:
+			- Se busca en la base de datos un usuario que tenga el TokenConfirmacion recibido en la URL.
+			- Si el token no es válido o ya fue usado, se devuelve un error 404.
+
+		2. Confirmación de la cuenta:
+			- Si el usuario existe, se cambia su estado Confirmado a true.
+			- Se borra el TokenConfirmacion porque ya no se necesita.
+			- Se guardan los cambios en la base de datos.
+
+		3. Redirección a la vista de confirmación:
+			- Se muestra una vista que indica que la cuenta ha sido confirmada con éxito.
+
+	RECUPERAR CONTRASEÑA:
+
+		public async Task<IActionResult> RecuperarContraseña(string correo)
+        {
+            var usuario = context.Usuarios.FirstOrDefault(u => u.Correo == correo);
+            if (usuario == null)
+            {
+                ModelState.AddModelError("correo", "No existe una cuenta con ese correo.");
+                return View();
+            }
+
+            string token = Guid.NewGuid().ToString(); // Genera un token único
+            usuario.TokenConfirmacion = token;
+            context.SaveChanges();
+
+            // Crear el enlace para restablecer la contraseña
+            string linkRecuperacion = Url.Action("RestablecerContraseña", "LoginRegistro", new { token }, Request.Scheme);
+            string mensaje = $"<p>Para restablecer tu contraseña, haz click <a href='{linkRecuperacion}'>aquí</a>.</p>";
+
+            // Enviar el correo con el enlace
+            await _emailService.EnviarCorreo(usuario.Correo, "Recuperación de contraseña", mensaje);
+
+            return View("RecuperacionEnviada"); // Puedes crear una vista simple que le avise al usuario que se envió el correo
+        }
+
+		1. Búsqueda del usuario por correo:
+			- Se verifica si el correo ingresado existe en la base de datos.
+			- Si no existe, se muestra un mensaje de error.
+
+		2. Generación del token de recuperación:
+			- Se genera un nuevo token único.
+			- Se guarda en la base de datos en el campo TokenConfirmacion.
+
+		3. Creación del enlace de recuperación:
+			- Se genera un enlace con Url.Action() que incluye el token.
+
+		4. Envío del email con el enlace:
+			- Se genera un mensaje con instrucciones para restablecer la contraseña.
+			- Se envía el email con EnviarCorreo().
+
+		5. Redirección a la vista de confirmación:
+			- Se muestra una vista indicando que se ha enviado un correo con instrucciones.
+
+	
+	RESTABLECER CONTRASEÑA:
+		El metodo restablecer contraseña se utiliza dentro de recuperar contraseña.
+
+	    public IActionResult RestablecerContraseña(string token)
+        {
+            var usuario = context.Usuarios.FirstOrDefault(u => u.TokenConfirmacion == token);
+            if (usuario == null)
+            {
+                return NotFound(); // Si no se encuentra el token, retorna 404
+            }
+
+            // Si el token es válido, se muestra la vista para cambiar la contraseña
+            return View(new RestablecerContraseñaViewModel { Token = token });
+        }
+
+        [HttpPost]
+        public IActionResult RestablecerContraseña(RestablecerContraseñaViewModel model)
+        {
+            var usuario = context.Usuarios.FirstOrDefault(u => u.TokenConfirmacion == model.Token);
+            if (usuario == null)
+            {
+                return NotFound(); // Si no se encuentra el token, retorna 404
+            }
+
+            // Verificar que las contraseñas coinciden
+            if (model.NuevaContraseña != model.ConfirmarContraseña)
+            {
+                ModelState.AddModelError("ConfirmarContraseña", "Las contraseñas no coinciden.");
+                return View(model);
+            }
+
+            // Actualizar la contraseña
+            usuario.Contraseña = ConvertirSha256(model.NuevaContraseña); // Asumí que usas SHA256 para la contraseña
+            usuario.TokenConfirmacion = null; // Eliminar el token después de usarlo
+            context.SaveChanges();
+
+            return RedirectToAction("IniciarSesion"); 
+        }  
+
+		Paso 1: Validación del token
+			- Se busca un usuario en la base de datos que tenga el TokenConfirmacion recibido.
+			- Si no se encuentra un usuario con ese token, se muestra un error 404.
+
+		Paso 2: Verificación de contraseñas
+			- Se valida que las contraseñas ingresadas coincidan.
+			- Si no coinciden, se muestra un mensaje de error.
+
+		Paso 3: Actualización de la contraseña
+			- Se cifra la nueva contraseña con SHA256.
+			- Se actualiza el campo Contraseña en la base de datos.
+			- Se borra el TokenConfirmacion para evitar que el enlace se use nuevamente.
+			- Se guardan los cambios en la base de datos.
+
+		Paso 4: Redirección al inicio de sesión
+			- Se redirige al usuario a la pantalla de inicio de sesión.
+
+
+	ACLARACION:
+
+		Las funciones que envian un correo funcionan de la siguiente manera. Primero se crea una funcion que sera la vista para
+		enviar ese correo, por ejemplo en recuperarContraseña, se utiliza una vista que solamente es un formulario en que solo
+		tiene un campo para completar (el del correo). Esta funcion se encarga de generar el token y tambien de enviar el correo.
+		Dentro del correo que se envia hay un link que es el que se utiliza para restablecer la contraseña.
+		Por otro lado tenemos otra funcion que es la que se encarga de restablecer la contraseña. Esta funcion se utiliza dentro
+		de la primera funcion mencionada, precisamente en el link que se envia por correo, al clickear el link lo que estamos
+		haciendo es ejecutar la funcion. Esta funcion se encarga corroborar el token, de hacer los cambios en la base de datos
+		y de eliminar el token cuando ya se realizo la operacion.
+		Por lo tanto cada vez que enviamos correos existen dos funciones, una que contiene la vista, los datos y se
+		encarga de enviar el correo y otra funcion que se es la que se manda por correo. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+	1. Explicar paso a paso las funciones, el service y como funciona enviar un mail.
+	2. Cada vez que se envia el correo, mostrarle al usuario un mensaje (nueva vista) que diga que revise su correo.
+	3. Mejorar el estilo del correo, se pueden crear documentos html para que la vista del correo sea mas linda.
+	4. Explicar que para que un correo envie correos desde el codigo se debe configurar desde la ceunta del correo una contraseña
+	de aplicacion y se debe utilizar esa contraseña en el proyecto.
+	

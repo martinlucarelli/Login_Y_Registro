@@ -1,4 +1,5 @@
 using Login_Y_Registro.Context;
+using Login_Y_Registro.Service;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +8,10 @@ builder.Services.AddControllersWithViews();
 
 //Conexion a la base de datos
 builder.Services.AddSqlServer<LoginContext>(builder.Configuration.GetConnectionString("cnBaseDeDatos"));
+
+//Inyectar servicio de Email
+builder.Services.AddScoped<EmailService>();
+
 
 
 var app = builder.Build();

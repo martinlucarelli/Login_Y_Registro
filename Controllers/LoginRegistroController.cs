@@ -1,7 +1,9 @@
 ﻿using Login_Y_Registro.Context;
 using Login_Y_Registro.Models;
 using Login_Y_Registro.Models.ViewModels;
+using Login_Y_Registro.Service;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -11,12 +13,14 @@ namespace Login_Y_Registro.Controllers
     {
         LoginContext context;
         public ILogger<LoginRegistroController> logger;
+        private readonly EmailService _emailService;
 
-        public LoginRegistroController(LoginContext dbContext,ILogger<LoginRegistroController> _logger)
+        public LoginRegistroController(LoginContext dbContext,ILogger<LoginRegistroController> _logger, EmailService emailService)
         {
 
             context = dbContext;
             logger = _logger;
+            _emailService = emailService;
 
 
         }
@@ -50,7 +54,7 @@ namespace Login_Y_Registro.Controllers
 
 
         [HttpPost]
-        public IActionResult registrarUsuario(UsuarioViewModel u)
+        public async Task<IActionResult> registrarUsuario(UsuarioViewModel u)
         {
             var usuarioRepetido = context.Usuarios.FirstOrDefault(user=> user.Correo == u.correo);
 
@@ -64,14 +68,26 @@ namespace Login_Y_Registro.Controllers
 
                 string contraseñaBasheada = ConvertirSha256(u.contraseña);
 
+                string token = Guid.NewGuid().ToString(); //Genera token unico
+
                 Usuario usuarioFinal = new Usuario
                 {
                     Correo = u.correo,
-                    Contraseña = contraseñaBasheada
+                    Contraseña = contraseñaBasheada,
+                    Confirmado=false,
+                    TokenConfirmacion= token
+                    
                 };
 
                 context.Usuarios.Add(usuarioFinal);
                 context.SaveChanges();
+
+                //Enviar correo de confirmacion
+
+                string linkConfirmacion = Url.Action("ConfirmarCorreo", "LoginRegistro", new { token }, Request.Scheme);
+                string mensaje = $"<h3>Bienvenido a nuestra aplicación</h3><p>Haz click <a href='{linkConfirmacion}'>aquí</a> para confirmar tu correo.</p>";
+
+                await _emailService.EnviarCorreo(u.correo, "Confirma tu cuenta", mensaje);
 
                 return RedirectToAction("iniciarSesion", "LoginRegistro");
             }
@@ -83,7 +99,88 @@ namespace Login_Y_Registro.Controllers
             }
            
         }
-        
+
+        public IActionResult ConfirmarCorreo(string token)
+        {
+            var usuario = context.Usuarios.FirstOrDefault(u => u.TokenConfirmacion == token);
+            if (usuario == null)
+            {
+                return NotFound();
+            }
+
+            usuario.Confirmado = true;
+            usuario.TokenConfirmacion = null;
+            context.SaveChanges();
+
+            return View("ConfirmacionExitosa");
+        }
+
+
+        public IActionResult RecuperarContraseña()
+        {
+            return View();
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> RecuperarContraseña(string correo)
+        {
+            var usuario = context.Usuarios.FirstOrDefault(u => u.Correo == correo);
+            if (usuario == null)
+            {
+                ModelState.AddModelError("correo", "No existe una cuenta con ese correo.");
+                return View();
+            }
+
+            string token = Guid.NewGuid().ToString(); // Genera un token único
+            usuario.TokenConfirmacion = token;
+            context.SaveChanges();
+
+            // Crear el enlace para restablecer la contraseña
+            string linkRecuperacion = Url.Action("RestablecerContraseña", "LoginRegistro", new { token }, Request.Scheme);
+            string mensaje = $"<p>Para restablecer tu contraseña, haz click <a href='{linkRecuperacion}'>aquí</a>.</p>";
+
+            // Enviar el correo con el enlace
+            await _emailService.EnviarCorreo(usuario.Correo, "Recuperación de contraseña", mensaje);
+
+            return View("RecuperacionEnviada"); // Puedes crear una vista simple que le avise al usuario que se envió el correo
+        }
+
+        public IActionResult RestablecerContraseña(string token)
+        {
+            var usuario = context.Usuarios.FirstOrDefault(u => u.TokenConfirmacion == token);
+            if (usuario == null)
+            {
+                return NotFound(); // Si no se encuentra el token, retorna 404
+            }
+
+            // Si el token es válido, se muestra la vista para cambiar la contraseña
+            return View(new RestablecerContraseñaViewModel { Token = token });
+        }
+
+        [HttpPost]
+        public IActionResult RestablecerContraseña(RestablecerContraseñaViewModel model)
+        {
+            var usuario = context.Usuarios.FirstOrDefault(u => u.TokenConfirmacion == model.Token);
+            if (usuario == null)
+            {
+                return NotFound(); // Si no se encuentra el token, retorna 404
+            }
+
+            // Verificar que las contraseñas coinciden
+            if (model.NuevaContraseña != model.ConfirmarContraseña)
+            {
+                ModelState.AddModelError("ConfirmarContraseña", "Las contraseñas no coinciden.");
+                return View(model);
+            }
+
+            // Actualizar la contraseña
+            usuario.Contraseña = ConvertirSha256(model.NuevaContraseña); // Asumí que usas SHA256 para la contraseña
+            usuario.TokenConfirmacion = null; // Eliminar el token después de usarlo
+            context.SaveChanges();
+
+            return RedirectToAction("IniciarSesion"); 
+        }   
+
 
 
 
